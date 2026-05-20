@@ -45,8 +45,10 @@ def _fetch_metadata(url: str) -> dict:
 
 
 def _fetch_transcript(video_id: str) -> str:
-    entries = YouTubeTranscriptApi.get_transcript(video_id)
-    raw = " ".join(e["text"] for e in entries)
+    # v1.x: instance-based API; each entry is a Snippet with a .text attribute
+    api = YouTubeTranscriptApi()
+    entries = api.fetch(video_id)
+    raw = " ".join(e.text for e in entries)
     # Strip auto-generated bracketed annotations like [Music], [Applause]
     raw = re.sub(r"\[.*?\]", "", raw)
     raw = re.sub(r"\s+", " ", raw).strip()
