@@ -1,2 +1,5 @@
 PyQt6>=6.6.0
 markdown>=3.5.0
+youtube-transcript-api>=0.6.0
+yt-dlp>=2024.1.0
+trafilatura>=1.9.0
