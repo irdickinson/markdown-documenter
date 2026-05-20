@@ -1,16 +1,23 @@
-from PyQt6.QtCore import Qt
+import ollama
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QProgressBar,
     QSplitter,
     QStatusBar,
+    QTabWidget,
+    QVBoxLayout,
     QWidget,
 )
 
+from .panels.chat_panel import ChatPanel
 from .panels.input_panel import InputPanel
 from .panels.output_panel import OutputPanel
 from core.worker import ConversionWorker
+
+_OLLAMA_CHECK_INTERVAL_MS = 10_000
 
 
 class MainWindow(QMainWindow):
@@ -22,27 +29,20 @@ class MainWindow(QMainWindow):
         self._worker: ConversionWorker | None = None
         self._build_ui()
         self._connect_signals()
+        self._start_ollama_polling()
 
     def _build_ui(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
 
-        layout = QHBoxLayout(central)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-
-        self.input_panel = InputPanel()
-        self.output_panel = OutputPanel()
-
-        splitter.addWidget(self.input_panel)
-        splitter.addWidget(self.output_panel)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 3)
-        splitter.setSizes([280, 920])
-
-        layout.addWidget(splitter)
+        self._tabs = QTabWidget()
+        self._tabs.addTab(self._build_converter_tab(), "Converter")
+        self._tabs.addTab(self._build_chat_tab(), "Chat")
+        root.addWidget(self._tabs)
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -55,9 +55,51 @@ class MainWindow(QMainWindow):
         self._throbber.hide()
         self.status_bar.addPermanentWidget(self._throbber)
 
+        self._ollama_label = QLabel()
+        self._ollama_label.setContentsMargins(0, 0, 8, 0)
+        self.status_bar.addPermanentWidget(self._ollama_label)
+
+    def _build_converter_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.input_panel = InputPanel()
+        self.output_panel = OutputPanel()
+        splitter.addWidget(self.input_panel)
+        splitter.addWidget(self.output_panel)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([280, 920])
+
+        layout.addWidget(splitter)
+        return widget
+
+    def _build_chat_tab(self) -> QWidget:
+        self.chat_panel = ChatPanel()
+        return self.chat_panel
+
     def _connect_signals(self) -> None:
         self.input_panel.convert_btn.clicked.connect(self._on_convert)
         self.input_panel.open_file_requested.connect(self.output_panel.open_file)
+
+    def _start_ollama_polling(self) -> None:
+        self._check_ollama_status()
+        self._ollama_timer = QTimer(self)
+        self._ollama_timer.setInterval(_OLLAMA_CHECK_INTERVAL_MS)
+        self._ollama_timer.timeout.connect(self._check_ollama_status)
+        self._ollama_timer.start()
+
+    def _check_ollama_status(self) -> None:
+        if _ollama_running():
+            self._ollama_label.setText("● Ollama ready")
+            self._ollama_label.setStyleSheet("color: #4caf50; font-size: 11px;")
+            self.chat_panel.refresh_models()
+        else:
+            self._ollama_label.setText("● Ollama not running")
+            self._ollama_label.setStyleSheet("color: #f44336; font-size: 11px;")
 
     def _on_convert(self) -> None:
         sources = self.input_panel.take_sources()
@@ -89,3 +131,11 @@ class MainWindow(QMainWindow):
         self._throbber.hide()
         self.input_panel.set_processing(False)
         self.status_bar.showMessage(f"Error: {message}")
+
+
+def _ollama_running() -> bool:
+    try:
+        ollama.list()
+        return True
+    except Exception:
+        return False
