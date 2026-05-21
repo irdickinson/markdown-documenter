@@ -84,7 +84,6 @@ class ChatPanel(QWidget):
         self._input = QLineEdit()
         self._input.setPlaceholderText("Type a message…")
         self._send_btn = QPushButton("Send")
-        self._send_btn.setDefault(True)
         self._stop_btn = QPushButton("Stop")
         self._stop_btn.setEnabled(False)
         input_row.addWidget(self._input, stretch=1)
@@ -198,6 +197,8 @@ class ChatPanel(QWidget):
         self._send_btn.setEnabled(not busy)
         self._input.setEnabled(not busy)
         self._stop_btn.setEnabled(busy)
+        if not busy:
+            self._input.setFocus()
 
 
 def _build_css() -> str:
