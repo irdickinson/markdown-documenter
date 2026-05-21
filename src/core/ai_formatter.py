@@ -2,7 +2,7 @@ from typing import Callable
 
 import ollama
 
-_MODEL = "doc-formatter"
+DEFAULT_MODEL = "doc-formatter"
 
 # Instruction prefixes injected into the user message per formatting mode.
 # "structured" uses the model's own system prompt unmodified.
@@ -24,7 +24,7 @@ _MODE_PREFIX: dict[str, str] = {
 def doc_formatter_available() -> bool:
     try:
         models = ollama.list()
-        return any(m.model.startswith(_MODEL) for m in models.models)
+        return any(m.model.startswith(DEFAULT_MODEL) for m in models.models)
     except Exception:
         return False
 
@@ -32,6 +32,7 @@ def doc_formatter_available() -> bool:
 def reformat_with_doc_formatter(
     content: str,
     formatting_mode: str = "structured",
+    model: str = DEFAULT_MODEL,
     stop_flag: Callable[[], bool] | None = None,
 ) -> str:
     body = _strip_frontmatter(content)
@@ -39,7 +40,7 @@ def reformat_with_doc_formatter(
     prompt = prefix + body
 
     stream = ollama.chat(
-        model=_MODEL,
+        model=model,
         messages=[{"role": "user", "content": prompt}],
         stream=True,
     )

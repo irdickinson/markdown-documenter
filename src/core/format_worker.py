@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from core.ai_formatter import reformat_with_doc_formatter
+from core.ai_formatter import DEFAULT_MODEL, reformat_with_doc_formatter
 
 
 class FormatWorker(QThread):
@@ -10,10 +10,16 @@ class FormatWorker(QThread):
     finished = pyqtSignal(str, str)  # (content, saved_path)
     error = pyqtSignal(str)
 
-    def __init__(self, paths: list[str], formatting_mode: str = "structured") -> None:
+    def __init__(
+        self,
+        paths: list[str],
+        formatting_mode: str = "structured",
+        model: str = DEFAULT_MODEL,
+    ) -> None:
         super().__init__()
         self.paths = [Path(p) for p in paths]
         self.formatting_mode = formatting_mode
+        self.model = model
         self._stopped = False
 
     def stop(self) -> None:
@@ -34,6 +40,7 @@ class FormatWorker(QThread):
                 reformatted = reformat_with_doc_formatter(
                     content,
                     formatting_mode=self.formatting_mode,
+                    model=self.model,
                     stop_flag=lambda: self._stopped,
                 )
                 dest = _formatted_path(src)

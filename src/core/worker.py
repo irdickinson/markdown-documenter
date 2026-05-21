@@ -1,6 +1,6 @@
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from core.ai_formatter import reformat_with_doc_formatter
+from core.ai_formatter import DEFAULT_MODEL, reformat_with_doc_formatter
 from core.formatter import format_youtube, format_web, safe_filename
 from core.paths import OUTPUT_DIR
 from core.web import extract_web
@@ -27,12 +27,14 @@ class ConversionWorker(QThread):
         subfolder: str,
         output_mode: str = RAW_ONLY,
         formatting_mode: str = "structured",
+        model: str = DEFAULT_MODEL,
     ) -> None:
         super().__init__()
         self.sources = sources
         self.subfolder = subfolder
         self.output_mode = output_mode
         self.formatting_mode = formatting_mode
+        self.model = model
         self._stopped = False
 
     def stop(self) -> None:
@@ -89,6 +91,7 @@ class ConversionWorker(QThread):
                     reformatted = reformat_with_doc_formatter(
                         markdown,
                         formatting_mode=self.formatting_mode,
+                        model=self.model,
                         stop_flag=lambda: self._stopped,
                     )
                     fmt_path = formatted_dir / filename
