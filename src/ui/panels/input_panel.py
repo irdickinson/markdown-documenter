@@ -7,7 +7,6 @@ from PyQt6.QtGui import QDropEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
-    QFrame,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -31,6 +30,12 @@ from core.worker import RAW_ONLY, FORMATTED_ONLY, BOTH
 
 def _is_youtube_url(url: str) -> bool:
     return "youtube.com/watch" in url or "youtu.be/" in url
+
+
+def _section_label(text: str) -> QLabel:
+    label = QLabel(text.upper())
+    label.setStyleSheet("color: #94a3b8; font-size: 10px; font-weight: 700;")
+    return label
 
 
 class OutputTreeWidget(QTreeWidget):
@@ -61,7 +66,6 @@ class OutputTreeWidget(QTreeWidget):
         else:
             dest_dir = OUTPUT_DIR
 
-        # Prevent moving a folder into its own subtree
         try:
             dest_dir.resolve().relative_to(src_path.resolve())
             event.ignore()
@@ -153,12 +157,12 @@ class OutputTreeWidget(QTreeWidget):
 
 class InputPanel(QWidget):
     open_file_requested = pyqtSignal(str)
-    format_file_requested = pyqtSignal(str)  # path to an existing .md file
+    format_file_requested = pyqtSignal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumWidth(240)
-        self.setMaximumWidth(400)
+        self.setMinimumWidth(260)
+        self.setMaximumWidth(380)
         self._queued_sources: list[str] = []
         self._build_ui()
         self._connect_signals()
@@ -182,11 +186,21 @@ class InputPanel(QWidget):
     def output_mode(self) -> str:
         return self._output_mode_combo.currentData()
 
+    @property
+    def formatting_mode(self) -> str:
+        return self._format_depth_combo.currentData()
+
     def set_processing(self, active: bool) -> None:
         self._url_input.setEnabled(not active)
-        self._add_btn.setEnabled(not active)
+        self._add_btn.setEnabled(not active and bool(self._url_input.text().strip()))
         self._output_mode_combo.setEnabled(not active)
-        self.convert_btn.setEnabled(not active)
+        self._format_depth_combo.setEnabled(not active)
+        self._subfolder_input.setEnabled(not active)
+        self.convert_btn.setEnabled(not active and bool(self._queued_sources) or False)
+        self.stop_btn.setEnabled(active)
+        if not active:
+            # Restore convert button state based on queue
+            self.convert_btn.setEnabled(bool(self._queued_sources))
 
     def refresh_output_tree(self) -> None:
         self._output_tree.clear()
@@ -210,74 +224,93 @@ class InputPanel(QWidget):
     def _build_add_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        layout.setContentsMargins(16, 20, 16, 20)
-        layout.setSpacing(10)
+        layout.setContentsMargins(14, 18, 14, 18)
+        layout.setSpacing(0)
 
-        url_label = QLabel("URL")
-        url_label.setStyleSheet("font-weight: bold;")
+        # --- URL ---
+        layout.addWidget(_section_label("Source URL"))
+        layout.addSpacing(5)
         self._url_input = QLineEdit()
-        self._url_input.setPlaceholderText("YouTube or web article URL")
+        self._url_input.setPlaceholderText("YouTube or article URL")
+        layout.addWidget(self._url_input)
+        layout.addSpacing(6)
         self._add_btn = QPushButton("Add to Queue")
         self._add_btn.setEnabled(False)
-
-        layout.addWidget(url_label)
-        layout.addWidget(self._url_input)
         layout.addWidget(self._add_btn)
-        layout.addWidget(_divider())
+        layout.addSpacing(18)
 
-        queue_label = QLabel("Queue")
-        queue_label.setStyleSheet("font-weight: bold;")
-        self._queue_list = QListWidget()
-        self._queue_list.setMaximumHeight(140)
-        self._queue_list.setWordWrap(True)
-
-        clear_row = QHBoxLayout()
-        self._queue_count_label = QLabel("No sources queued")
-        self._queue_count_label.setStyleSheet("color: grey; font-size: 11px;")
+        # --- Queue ---
+        queue_header = QHBoxLayout()
+        self._queue_count_label = QLabel("Queue")
+        self._queue_count_label.setStyleSheet("color: #94a3b8; font-size: 10px; font-weight: 700;")
         self._clear_btn = QPushButton("Clear")
         self._clear_btn.setObjectName("secondaryBtn")
         self._clear_btn.setEnabled(False)
-        self._clear_btn.setMaximumWidth(60)
-        clear_row.addWidget(self._queue_count_label)
-        clear_row.addStretch()
-        clear_row.addWidget(self._clear_btn)
-
-        layout.addWidget(queue_label)
-        layout.addLayout(clear_row)
+        self._clear_btn.setMaximumWidth(52)
+        self._clear_btn.setMinimumHeight(20)
+        queue_header.addWidget(self._queue_count_label)
+        queue_header.addStretch()
+        queue_header.addWidget(self._clear_btn)
+        layout.addLayout(queue_header)
+        layout.addSpacing(5)
+        self._queue_list = QListWidget()
+        self._queue_list.setMaximumHeight(110)
+        self._queue_list.setWordWrap(True)
         layout.addWidget(self._queue_list)
-        layout.addWidget(_divider())
+        layout.addSpacing(18)
 
-        subfolder_label = QLabel("Output Subfolder")
-        subfolder_label.setStyleSheet("font-weight: bold;")
-        subfolder_hint = QLabel("Optional — nested path inside output/")
-        subfolder_hint.setStyleSheet("color: grey; font-size: 11px;")
-        subfolder_hint.setWordWrap(True)
+        # --- Output subfolder ---
+        layout.addWidget(_section_label("Output Subfolder  (optional)"))
+        layout.addSpacing(5)
         self._subfolder_input = QLineEdit()
-        self._subfolder_input.setPlaceholderText("e.g. AI/videos")
-
-        layout.addWidget(subfolder_label)
-        layout.addWidget(subfolder_hint)
+        self._subfolder_input.setPlaceholderText("e.g. AI/videos  →  output/AI/videos/")
         layout.addWidget(self._subfolder_input)
-        layout.addWidget(_divider())
+        layout.addSpacing(18)
 
-        mode_label = QLabel("Output Mode")
-        mode_label.setStyleSheet("font-weight: bold;")
+        # --- Formatting options ---
+        layout.addWidget(_section_label("Output"))
+        layout.addSpacing(5)
         self._output_mode_combo = QComboBox()
         self._output_mode_combo.addItem("Raw only (Stage 1)", RAW_ONLY)
         self._output_mode_combo.addItem("Formatted only (Stage 2)", FORMATTED_ONLY)
-        self._output_mode_combo.addItem("Both (Stage 1 + Stage 2)", BOTH)
+        self._output_mode_combo.addItem("Both  —  raw + formatted", BOTH)
         self._output_mode_combo.setToolTip(
-            "Raw only  — save to output/.../raw/\n"
-            "Formatted — run doc-formatter, save to output/.../formatted/\n"
-            "Both      — save raw, then also save a formatted copy"
+            "Raw only  →  output/.../raw/\n"
+            "Formatted  →  doc-formatter pass, output/.../formatted/\n"
+            "Both  →  saves raw then also a formatted copy"
         )
-
-        layout.addWidget(mode_label)
         layout.addWidget(self._output_mode_combo)
+        layout.addSpacing(8)
 
+        layout.addWidget(_section_label("Formatting Depth"))
+        layout.addSpacing(5)
+        self._format_depth_combo = QComboBox()
+        self._format_depth_combo.addItem("Structured  (default)", "structured")
+        self._format_depth_combo.addItem("Quick  —  headers only, fast", "quick")
+        self._format_depth_combo.addItem("By Topic  —  reorganise by theme", "topic")
+        self._format_depth_combo.setToolTip(
+            "Structured: full cleanup per doc-formatter system prompt\n"
+            "Quick: section headers and run-on fixes only, faster\n"
+            "By Topic: groups related content into themed sections"
+        )
+        layout.addWidget(self._format_depth_combo)
+        layout.addSpacing(20)
+
+        # --- Action buttons ---
+        action_row = QHBoxLayout()
+        action_row.setSpacing(6)
         self.convert_btn = QPushButton("Convert")
         self.convert_btn.setEnabled(False)
-        layout.addWidget(self.convert_btn)
+        self.convert_btn.setMinimumHeight(34)
+        self.stop_btn = QPushButton("Stop")
+        self.stop_btn.setObjectName("stopBtn")
+        self.stop_btn.setEnabled(False)
+        self.stop_btn.setMaximumWidth(64)
+        self.stop_btn.setMinimumHeight(34)
+        action_row.addWidget(self.convert_btn, stretch=1)
+        action_row.addWidget(self.stop_btn)
+        layout.addLayout(action_row)
+
         layout.addStretch()
         return widget
 
@@ -358,15 +391,11 @@ class InputPanel(QWidget):
         self._queue_list.clear()
         for source in self._queued_sources:
             badge = "[YT]" if _is_youtube_url(source) else "[Web]"
-            item = QListWidgetItem(f"{badge} {source}")
+            item = QListWidgetItem(f"{badge}  {source}")
             self._queue_list.addItem(item)
         count = len(self._queued_sources)
-        if count == 0:
-            self._queue_count_label.setText("No sources queued")
-        else:
-            self._queue_count_label.setText(
-                f"{count} source{'s' if count > 1 else ''} queued"
-            )
+        label = "Queue" if count == 0 else f"Queue  —  {count} source{'s' if count > 1 else ''}"
+        self._queue_count_label.setText(label.upper())
         self.convert_btn.setEnabled(count > 0)
         self._clear_btn.setEnabled(count > 0)
 
@@ -397,10 +426,3 @@ def _populate_tree(parent_item: QTreeWidgetItem, folder: Path, panel: InputPanel
         item.setIcon(0, file_icon)
         item.setData(0, Qt.ItemDataRole.UserRole, str(f))
         parent_item.addChild(item)
-
-
-def _divider() -> QFrame:
-    line = QFrame()
-    line.setFrameShape(QFrame.Shape.HLine)
-    line.setFrameShadow(QFrame.Shadow.Sunken)
-    return line
