@@ -247,7 +247,7 @@ body {{
 }}
 .user-msg {{ background: {user_bg}; }}
 .ai-msg   {{ background: {ai_bg}; }}
-.label    {{ font-size: 10px; color: {label_color}; text-transform: uppercase; letter-spacing: 0.05em; }}
+.label    {{ font-size: 11px; color: {label_color}; font-weight: 600; }}
 p {{ margin: 4px 0; }}
 code {{ background: {code_bg}; padding: 1px 4px; border-radius: 3px; font-family: Consolas, monospace; }}
 pre  {{ background: {code_bg}; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }}
