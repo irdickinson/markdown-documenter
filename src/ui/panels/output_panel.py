@@ -1,9 +1,9 @@
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import markdown as md
 from PyQt6.QtCore import QTimer
-from PyQt6.QtGui import QFont, QKeySequence, QPalette, QShortcut
+from PyQt6.QtGui import QFont, QKeySequence, QPalette, QTextCursor, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -99,6 +99,7 @@ class OutputPanel(QWidget):
         self._copy_btn.setEnabled(has_content)
         if not has_content:
             self._edit_btn.setChecked(True)
+        self.show_content()
 
     def set_content(self, markdown: str, file_path: str = "") -> None:
         self._current_file = Path(file_path) if file_path else None
@@ -108,6 +109,7 @@ class OutputPanel(QWidget):
         self._render()
         self._update_file_label()
         self._set_buttons_enabled(bool(markdown.strip()))
+        self.show_content()
 
     def clear(self) -> None:
         self._raw_content = ""
@@ -117,6 +119,46 @@ class OutputPanel(QWidget):
         self._load_into_editor("")
         self._set_buttons_enabled(False)
         self._file_label.setText("Preview")
+        self.show_content()
+
+    def start_log(self) -> None:
+        self._log.clear()
+        self._log.show()
+        self._browser.hide()
+        self._editor.hide()
+        self._file_label.setText("Processing…")
+        self._set_buttons_enabled(False)
+
+    def append_log(self, message: str) -> None:
+        ts = datetime.now().strftime("%H:%M:%S")
+        msg_lower = message.lower()
+        if any(w in msg_lower for w in ("error", "failed")):
+            color = "#f87171"
+        elif any(w in msg_lower for w in ("saved", "formatted", "complete", "done")):
+            color = "#4ade80"
+        elif "stop" in msg_lower:
+            color = "#fb923c"
+        else:
+            color = "#94a3b8"
+        html = (
+            f'<span style="color:#4b5563;font-size:11px;">[{ts}]</span>'
+            f'&nbsp;<span style="color:{color};font-size:11px;">{_esc(message)}</span><br>'
+        )
+        cursor = self._log.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._log.setTextCursor(cursor)
+        self._log.insertHtml(html)
+        sb = self._log.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def show_content(self) -> None:
+        self._log.hide()
+        if self._edit_btn.isChecked():
+            self._editor.show()
+            self._browser.hide()
+        else:
+            self._browser.show()
+            self._editor.hide()
 
     # ------------------------------------------------------------------
     # Build
@@ -124,18 +166,18 @@ class OutputPanel(QWidget):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(8)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)
 
         header_row = QHBoxLayout()
         self._file_label = QLabel("Preview")
-        self._file_label.setStyleSheet("font-weight: bold; font-size: 15px;")
+        self._file_label.setStyleSheet("font-weight: bold; font-size: 14px;")
 
         self._edit_btn = QToolButton()
         self._edit_btn.setText("Edit")
         self._edit_btn.setCheckable(True)
         self._edit_btn.setEnabled(False)
-        self._edit_btn.setToolTip("Toggle edit mode (Ctrl+S to save)")
+        self._edit_btn.setToolTip("Toggle edit mode  (Ctrl+S to save)")
 
         self._copy_btn = QToolButton()
         self._copy_btn.setText("Copy")
@@ -152,6 +194,7 @@ class OutputPanel(QWidget):
         header_row.addWidget(self.save_btn)
         layout.addLayout(header_row)
 
+        # Markdown preview
         self._browser = QTextBrowser()
         self._browser.setOpenExternalLinks(True)
         self._browser.setPlaceholderText(
@@ -160,11 +203,23 @@ class OutputPanel(QWidget):
         )
         layout.addWidget(self._browser)
 
+        # Raw editor (hidden by default)
         self._editor = QTextEdit()
         self._editor.setFont(QFont("Consolas", 11))
         self._editor.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         self._editor.hide()
         layout.addWidget(self._editor)
+
+        # Progress log (hidden by default)
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setFont(QFont("Consolas", 9))
+        self._log.setStyleSheet(
+            "background: #0f172a; color: #94a3b8;"
+            "border: 1px solid #1e293b; border-radius: 5px;"
+        )
+        self._log.hide()
+        layout.addWidget(self._log)
 
     def _connect_signals(self) -> None:
         self.save_btn.clicked.connect(self._on_save)
@@ -255,3 +310,11 @@ class OutputPanel(QWidget):
             self._file_label.setText(f"{prefix}{self._current_file.name}")
         else:
             self._file_label.setText("Preview")
+
+
+def _esc(text: str) -> str:
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
