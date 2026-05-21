@@ -111,7 +111,11 @@ class MainWindow(QMainWindow):
         self._throbber.show()
         self.status_bar.showMessage("Starting…")
 
-        self._worker = ConversionWorker(sources, self.input_panel.subfolder)
+        self._worker = ConversionWorker(
+            sources,
+            self.input_panel.subfolder,
+            use_doc_formatter=self.input_panel.use_doc_formatter,
+        )
         self._worker.progress.connect(self.status_bar.showMessage)
         self._worker.finished.connect(self._on_finished)
         self._worker.error.connect(self._on_error)

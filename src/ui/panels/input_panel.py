@@ -6,6 +6,7 @@ from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import QDropEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -169,9 +170,14 @@ class InputPanel(QWidget):
         raw = self._subfolder_input.text().strip()
         return raw.replace("\\", "/").strip("/")
 
+    @property
+    def use_doc_formatter(self) -> bool:
+        return self._doc_formatter_checkbox.isChecked()
+
     def set_processing(self, active: bool) -> None:
         self._url_input.setEnabled(not active)
         self._add_btn.setEnabled(not active)
+        self._doc_formatter_checkbox.setEnabled(not active)
         self.convert_btn.setEnabled(not active)
 
     def refresh_output_tree(self) -> None:
@@ -244,6 +250,13 @@ class InputPanel(QWidget):
         layout.addWidget(subfolder_hint)
         layout.addWidget(self._subfolder_input)
         layout.addWidget(_divider())
+
+        self._doc_formatter_checkbox = QCheckBox("Apply doc-formatter (Stage 2)")
+        self._doc_formatter_checkbox.setToolTip(
+            "Pass extracted content through the doc-formatter Ollama model\n"
+            "to produce cleaner Markdown structure. Requires Ollama + doc-formatter."
+        )
+        layout.addWidget(self._doc_formatter_checkbox)
 
         self.convert_btn = QPushButton("Convert")
         self.convert_btn.setEnabled(False)
