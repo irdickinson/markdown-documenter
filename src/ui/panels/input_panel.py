@@ -18,12 +18,14 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QStyle,
     QTabWidget,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from core.ai_formatter import DEFAULT_MODEL
 from core.paths import OUTPUT_DIR
 from core.worker import RAW_ONLY, FORMATTED_ONLY, BOTH
 
@@ -48,6 +50,7 @@ class OutputTreeWidget(QTreeWidget):
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(True)
         self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context_menu)
 
@@ -157,7 +160,8 @@ class OutputTreeWidget(QTreeWidget):
 
 class InputPanel(QWidget):
     open_file_requested = pyqtSignal(str)
-    format_file_requested = pyqtSignal(str)
+    format_file_requested = pyqtSignal(str)       # single file (right-click)
+    format_files_requested = pyqtSignal(list)     # multiple files (Format Selected button)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -166,6 +170,7 @@ class InputPanel(QWidget):
         self._queued_sources: list[str] = []
         self._build_ui()
         self._connect_signals()
+        self._refresh_formatter_models()
 
     # ------------------------------------------------------------------
     # Public API
@@ -190,22 +195,31 @@ class InputPanel(QWidget):
     def formatting_mode(self) -> str:
         return self._format_depth_combo.currentData()
 
+    @property
+    def formatting_model(self) -> str:
+        return self._model_combo.currentText().strip() or DEFAULT_MODEL
+
     def set_processing(self, active: bool) -> None:
         self._url_input.setEnabled(not active)
         self._add_btn.setEnabled(not active and bool(self._url_input.text().strip()))
         self._output_mode_combo.setEnabled(not active)
         self._format_depth_combo.setEnabled(not active)
+        self._model_combo.setEnabled(not active)
+        self._model_refresh_btn.setEnabled(not active)
         self._subfolder_input.setEnabled(not active)
-        self.convert_btn.setEnabled(not active and bool(self._queued_sources) or False)
+        self._format_selected_btn.setEnabled(not active and self._has_selected_md_files())
         self.stop_btn.setEnabled(active)
         if not active:
-            # Restore convert button state based on queue
             self.convert_btn.setEnabled(bool(self._queued_sources))
 
     def refresh_output_tree(self) -> None:
         self._output_tree.clear()
         if OUTPUT_DIR.exists():
             _populate_tree(self._output_tree.invisibleRootItem(), OUTPUT_DIR, self)
+        self._update_format_selected_btn()
+
+    def refresh_formatter_models(self) -> None:
+        self._refresh_formatter_models()
 
     # ------------------------------------------------------------------
     # Build
@@ -241,7 +255,7 @@ class InputPanel(QWidget):
 
         # --- Queue ---
         queue_header = QHBoxLayout()
-        self._queue_count_label = QLabel("Queue")
+        self._queue_count_label = QLabel("QUEUE")
         self._queue_count_label.setStyleSheet("color: #94a3b8; font-size: 10px; font-weight: 700;")
         self._clear_btn = QPushButton("Clear")
         self._clear_btn.setObjectName("secondaryBtn")
@@ -254,7 +268,7 @@ class InputPanel(QWidget):
         layout.addLayout(queue_header)
         layout.addSpacing(5)
         self._queue_list = QListWidget()
-        self._queue_list.setMaximumHeight(110)
+        self._queue_list.setMaximumHeight(100)
         self._queue_list.setWordWrap(True)
         layout.addWidget(self._queue_list)
         layout.addSpacing(18)
@@ -267,7 +281,7 @@ class InputPanel(QWidget):
         layout.addWidget(self._subfolder_input)
         layout.addSpacing(18)
 
-        # --- Formatting options ---
+        # --- Output mode ---
         layout.addWidget(_section_label("Output"))
         layout.addSpacing(5)
         self._output_mode_combo = QComboBox()
@@ -280,8 +294,9 @@ class InputPanel(QWidget):
             "Both  →  saves raw then also a formatted copy"
         )
         layout.addWidget(self._output_mode_combo)
-        layout.addSpacing(8)
+        layout.addSpacing(14)
 
+        # --- Formatting depth ---
         layout.addWidget(_section_label("Formatting Depth"))
         layout.addSpacing(5)
         self._format_depth_combo = QComboBox()
@@ -294,6 +309,21 @@ class InputPanel(QWidget):
             "By Topic: groups related content into themed sections"
         )
         layout.addWidget(self._format_depth_combo)
+        layout.addSpacing(14)
+
+        # --- Formatting model ---
+        layout.addWidget(_section_label("Formatting Model"))
+        layout.addSpacing(5)
+        model_row = QHBoxLayout()
+        model_row.setSpacing(6)
+        self._model_combo = QComboBox()
+        self._model_combo.setToolTip("Ollama model to use for Stage 2 formatting")
+        self._model_refresh_btn = QToolButton()
+        self._model_refresh_btn.setText("↻")
+        self._model_refresh_btn.setToolTip("Refresh model list from Ollama")
+        model_row.addWidget(self._model_combo, stretch=1)
+        model_row.addWidget(self._model_refresh_btn)
+        layout.addLayout(model_row)
         layout.addSpacing(20)
 
         # --- Action buttons ---
@@ -328,7 +358,18 @@ class InputPanel(QWidget):
         layout.addLayout(btn_row)
 
         self._output_tree = OutputTreeWidget(self)
-        layout.addWidget(self._output_tree)
+        layout.addWidget(self._output_tree, stretch=1)
+
+        # --- Format selected bar ---
+        self._sel_label = QLabel("Select .md files to format with current settings")
+        self._sel_label.setStyleSheet("color: #94a3b8; font-size: 10px;")
+        self._sel_label.setWordWrap(True)
+        layout.addWidget(self._sel_label)
+
+        self._format_selected_btn = QPushButton("Format Selected Files")
+        self._format_selected_btn.setEnabled(False)
+        self._format_selected_btn.setMinimumHeight(30)
+        layout.addWidget(self._format_selected_btn)
 
         self.refresh_output_tree()
         return widget
@@ -343,7 +384,10 @@ class InputPanel(QWidget):
         self._add_btn.clicked.connect(self._on_add_url)
         self._clear_btn.clicked.connect(self._on_clear_queue)
         self._output_tree.itemDoubleClicked.connect(self._on_output_item_double_click)
+        self._output_tree.itemSelectionChanged.connect(self._update_format_selected_btn)
         self._new_folder_btn.clicked.connect(self._on_new_folder)
+        self._model_refresh_btn.clicked.connect(self._refresh_formatter_models)
+        self._format_selected_btn.clicked.connect(self._on_format_selected)
 
     def _on_url_changed(self, text: str) -> None:
         self._add_btn.setEnabled(bool(text.strip()))
@@ -380,12 +424,64 @@ class InputPanel(QWidget):
         except OSError as exc:
             QMessageBox.warning(self, "Create Failed", str(exc))
 
+    def _on_format_selected(self) -> None:
+        paths = self._selected_md_paths()
+        if paths:
+            self.format_files_requested.emit(paths)
+
+    def _update_format_selected_btn(self) -> None:
+        paths = self._selected_md_paths()
+        n = len(paths)
+        if n == 0:
+            self._sel_label.setText("Select .md files to format with current settings")
+            self._format_selected_btn.setText("Format Selected Files")
+            self._format_selected_btn.setEnabled(False)
+        else:
+            self._sel_label.setText(
+                f"{n} file{'s' if n > 1 else ''} selected  —  "
+                "uses formatting depth and model from Add Sources"
+            )
+            self._format_selected_btn.setText(
+                f"Format {n} File{'s' if n > 1 else ''}"
+            )
+            self._format_selected_btn.setEnabled(True)
+
     def _selected_output_folder(self) -> Path | None:
         item = self._output_tree.currentItem()
         if not item:
             return None
         path = Path(item.data(0, Qt.ItemDataRole.UserRole))
         return path if path.is_dir() else path.parent
+
+    def _selected_md_paths(self) -> list[str]:
+        return [
+            item.data(0, Qt.ItemDataRole.UserRole)
+            for item in self._output_tree.selectedItems()
+            if Path(item.data(0, Qt.ItemDataRole.UserRole)).is_file()
+            and item.data(0, Qt.ItemDataRole.UserRole).endswith(".md")
+        ]
+
+    def _has_selected_md_files(self) -> bool:
+        return bool(self._selected_md_paths())
+
+    def _refresh_formatter_models(self) -> None:
+        current = self._model_combo.currentText()
+        self._model_combo.clear()
+        try:
+            import ollama
+            result = ollama.list()
+            for m in result.models:
+                self._model_combo.addItem(m.model)
+            idx = self._model_combo.findText(current)
+            if idx >= 0:
+                self._model_combo.setCurrentIndex(idx)
+            else:
+                # Try to default to doc-formatter if present
+                idx = self._model_combo.findText(DEFAULT_MODEL)
+                if idx >= 0:
+                    self._model_combo.setCurrentIndex(idx)
+        except Exception:
+            self._model_combo.addItem(DEFAULT_MODEL)
 
     def _refresh_queue_list(self) -> None:
         self._queue_list.clear()
@@ -394,8 +490,8 @@ class InputPanel(QWidget):
             item = QListWidgetItem(f"{badge}  {source}")
             self._queue_list.addItem(item)
         count = len(self._queued_sources)
-        label = "Queue" if count == 0 else f"Queue  —  {count} source{'s' if count > 1 else ''}"
-        self._queue_count_label.setText(label.upper())
+        label = "QUEUE" if count == 0 else f"QUEUE  —  {count} SOURCE{'S' if count > 1 else ''}"
+        self._queue_count_label.setText(label)
         self.convert_btn.setEnabled(count > 0)
         self._clear_btn.setEnabled(count > 0)
 

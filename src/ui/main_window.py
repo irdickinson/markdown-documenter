@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import ollama
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
@@ -88,6 +90,7 @@ class MainWindow(QMainWindow):
         self.input_panel.stop_btn.clicked.connect(self._on_stop)
         self.input_panel.open_file_requested.connect(self.output_panel.open_file)
         self.input_panel.format_file_requested.connect(self._on_format_file)
+        self.input_panel.format_files_requested.connect(self._on_format_files)
 
     def _start_ollama_polling(self) -> None:
         self._check_ollama_status()
@@ -101,6 +104,7 @@ class MainWindow(QMainWindow):
             self._ollama_label.setText("● Ollama ready")
             self._ollama_label.setStyleSheet("color: #4caf50; font-size: 11px;")
             self.chat_panel.refresh_models()
+            self.input_panel.refresh_formatter_models()
         else:
             self._ollama_label.setText("● Ollama not running")
             self._ollama_label.setStyleSheet("color: #f44336; font-size: 11px;")
@@ -123,6 +127,7 @@ class MainWindow(QMainWindow):
             self.input_panel.subfolder,
             output_mode=self.input_panel.output_mode,
             formatting_mode=self.input_panel.formatting_mode,
+            model=self.input_panel.formatting_model,
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_conversion_finished)
@@ -139,6 +144,30 @@ class MainWindow(QMainWindow):
         self._format_worker = FormatWorker(
             [path],
             formatting_mode=self.input_panel.formatting_mode,
+            model=self.input_panel.formatting_model,
+        )
+        self._format_worker.progress.connect(self._on_progress)
+        self._format_worker.finished.connect(self._on_format_finished)
+        self._format_worker.error.connect(self._on_error)
+        self._format_worker.start()
+
+    def _on_format_files(self, paths: list) -> None:
+        if not paths:
+            return
+        self.input_panel.set_processing(True)
+        self.output_panel.start_log()
+        self.output_panel.append_log(
+            f"Queued {len(paths)} file{'s' if len(paths) > 1 else ''} for formatting"
+        )
+        for p in paths:
+            self.output_panel.append_log(f"  {Path(p).name}")
+        self._throbber.show()
+        self.status_bar.showMessage("Formatting…")
+
+        self._format_worker = FormatWorker(
+            paths,
+            formatting_mode=self.input_panel.formatting_mode,
+            model=self.input_panel.formatting_model,
         )
         self._format_worker.progress.connect(self._on_progress)
         self._format_worker.finished.connect(self._on_format_finished)
