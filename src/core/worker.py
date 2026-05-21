@@ -26,11 +26,17 @@ class ConversionWorker(QThread):
         sources: list[str],
         subfolder: str,
         output_mode: str = RAW_ONLY,
+        formatting_mode: str = "structured",
     ) -> None:
         super().__init__()
         self.sources = sources
         self.subfolder = subfolder
         self.output_mode = output_mode
+        self.formatting_mode = formatting_mode
+        self._stopped = False
+
+    def stop(self) -> None:
+        self._stopped = True
 
     def run(self) -> None:
         base_dir = OUTPUT_DIR / self.subfolder if self.subfolder else OUTPUT_DIR
@@ -46,6 +52,10 @@ class ConversionWorker(QThread):
         last_saved = ""
 
         for i, source in enumerate(self.sources, 1):
+            if self._stopped:
+                self.progress.emit("Stopped.")
+                break
+
             self.progress.emit(
                 f"[{i}/{len(self.sources)}] Fetching {source[:70]}…"
             )
@@ -71,22 +81,30 @@ class ConversionWorker(QThread):
                 last_saved = str(raw_path)
                 self.progress.emit(f"[{i}/{len(self.sources)}] Saved raw: {filename}")
 
-            if self.output_mode in (FORMATTED_ONLY, BOTH):
+            if self.output_mode in (FORMATTED_ONLY, BOTH) and not self._stopped:
                 self.progress.emit(
-                    f"[{i}/{len(self.sources)}] Reformatting with doc-formatter…"
+                    f"[{i}/{len(self.sources)}] Reformatting with doc-formatter ({self.formatting_mode})…"
                 )
                 try:
-                    reformatted = reformat_with_doc_formatter(markdown)
+                    reformatted = reformat_with_doc_formatter(
+                        markdown,
+                        formatting_mode=self.formatting_mode,
+                        stop_flag=lambda: self._stopped,
+                    )
                     fmt_path = formatted_dir / filename
                     fmt_path.write_text(reformatted, encoding="utf-8")
                     last_markdown = reformatted
                     last_saved = str(fmt_path)
-                    self.progress.emit(
-                        f"[{i}/{len(self.sources)}] Stage 2 complete: {filename}"
-                    )
+                    if self._stopped:
+                        self.progress.emit(
+                            f"[{i}/{len(self.sources)}] Stopped mid-format; partial output saved: {filename}"
+                        )
+                    else:
+                        self.progress.emit(
+                            f"[{i}/{len(self.sources)}] Formatted: {filename}"
+                        )
                 except Exception as exc:
                     if self.output_mode == FORMATTED_ONLY:
-                        # Fall back: save raw so the file isn't lost
                         raw_dir.mkdir(parents=True, exist_ok=True)
                         raw_path = raw_dir / filename
                         raw_path.write_text(markdown, encoding="utf-8")
