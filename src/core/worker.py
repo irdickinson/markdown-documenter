@@ -6,6 +6,11 @@ from core.paths import OUTPUT_DIR
 from core.web import extract_web
 from core.youtube import extract_youtube
 
+# output_mode values
+RAW_ONLY = "raw_only"
+FORMATTED_ONLY = "formatted_only"
+BOTH = "both"
+
 
 def _is_youtube_url(url: str) -> bool:
     return "youtube.com/watch" in url or "youtu.be/" in url
@@ -17,16 +22,25 @@ class ConversionWorker(QThread):
     error = pyqtSignal(str)
 
     def __init__(
-        self, sources: list[str], subfolder: str, use_doc_formatter: bool = False
+        self,
+        sources: list[str],
+        subfolder: str,
+        output_mode: str = RAW_ONLY,
     ) -> None:
         super().__init__()
         self.sources = sources
         self.subfolder = subfolder
-        self.use_doc_formatter = use_doc_formatter
+        self.output_mode = output_mode
 
     def run(self) -> None:
-        out_dir = OUTPUT_DIR / self.subfolder if self.subfolder else OUTPUT_DIR
-        out_dir.mkdir(parents=True, exist_ok=True)
+        base_dir = OUTPUT_DIR / self.subfolder if self.subfolder else OUTPUT_DIR
+        raw_dir = base_dir / "raw"
+        formatted_dir = base_dir / "formatted"
+
+        if self.output_mode in (RAW_ONLY, BOTH):
+            raw_dir.mkdir(parents=True, exist_ok=True)
+        if self.output_mode in (FORMATTED_ONLY, BOTH):
+            formatted_dir.mkdir(parents=True, exist_ok=True)
 
         last_markdown = ""
         last_saved = ""
@@ -49,27 +63,41 @@ class ConversionWorker(QThread):
                 return
 
             filename = safe_filename(title)
-            save_path = out_dir / filename
-            save_path.write_text(markdown, encoding="utf-8")
-            last_markdown = markdown
-            last_saved = str(save_path)
-            self.progress.emit(f"[{i}/{len(self.sources)}] Saved: {filename}")
 
-            if self.use_doc_formatter:
+            if self.output_mode in (RAW_ONLY, BOTH):
+                raw_path = raw_dir / filename
+                raw_path.write_text(markdown, encoding="utf-8")
+                last_markdown = markdown
+                last_saved = str(raw_path)
+                self.progress.emit(f"[{i}/{len(self.sources)}] Saved raw: {filename}")
+
+            if self.output_mode in (FORMATTED_ONLY, BOTH):
                 self.progress.emit(
                     f"[{i}/{len(self.sources)}] Reformatting with doc-formatter…"
                 )
                 try:
                     reformatted = reformat_with_doc_formatter(markdown)
-                    save_path.write_text(reformatted, encoding="utf-8")
+                    fmt_path = formatted_dir / filename
+                    fmt_path.write_text(reformatted, encoding="utf-8")
                     last_markdown = reformatted
+                    last_saved = str(fmt_path)
                     self.progress.emit(
                         f"[{i}/{len(self.sources)}] Stage 2 complete: {filename}"
                     )
                 except Exception as exc:
-                    # Non-fatal: Stage 1 file is already saved; report and continue
-                    self.progress.emit(
-                        f"[{i}/{len(self.sources)}] doc-formatter failed ({exc}); keeping Stage 1 output"
-                    )
+                    if self.output_mode == FORMATTED_ONLY:
+                        # Fall back: save raw so the file isn't lost
+                        raw_dir.mkdir(parents=True, exist_ok=True)
+                        raw_path = raw_dir / filename
+                        raw_path.write_text(markdown, encoding="utf-8")
+                        last_markdown = markdown
+                        last_saved = str(raw_path)
+                        self.progress.emit(
+                            f"[{i}/{len(self.sources)}] doc-formatter failed ({exc}); saved raw instead"
+                        )
+                    else:
+                        self.progress.emit(
+                            f"[{i}/{len(self.sources)}] doc-formatter failed ({exc}); keeping raw output"
+                        )
 
         self.finished.emit(last_markdown, last_saved)
