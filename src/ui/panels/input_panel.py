@@ -6,6 +6,7 @@ from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import QDropEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -25,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.paths import OUTPUT_DIR
+from core.worker import RAW_ONLY, FORMATTED_ONLY, BOTH
 
 
 def _is_youtube_url(url: str) -> bool:
@@ -98,11 +100,17 @@ class OutputTreeWidget(QTreeWidget):
         menu = QMenu(self)
         rename_action = menu.addAction("Rename")
         delete_action = menu.addAction("Delete")
+        format_action = None
+        if path.is_file() and path.suffix == ".md":
+            menu.addSeparator()
+            format_action = menu.addAction("Format with doc-formatter")
         action = menu.exec(self.viewport().mapToGlobal(pos))
         if action == rename_action:
             self._rename_item(path)
         elif action == delete_action:
             self._delete_item(path)
+        elif action is not None and action == format_action:
+            self._panel.format_file_requested.emit(str(path))
 
     def _rename_item(self, path: Path) -> None:
         new_name, ok = QInputDialog.getText(
@@ -145,6 +153,7 @@ class OutputTreeWidget(QTreeWidget):
 
 class InputPanel(QWidget):
     open_file_requested = pyqtSignal(str)
+    format_file_requested = pyqtSignal(str)  # path to an existing .md file
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -169,9 +178,14 @@ class InputPanel(QWidget):
         raw = self._subfolder_input.text().strip()
         return raw.replace("\\", "/").strip("/")
 
+    @property
+    def output_mode(self) -> str:
+        return self._output_mode_combo.currentData()
+
     def set_processing(self, active: bool) -> None:
         self._url_input.setEnabled(not active)
         self._add_btn.setEnabled(not active)
+        self._output_mode_combo.setEnabled(not active)
         self.convert_btn.setEnabled(not active)
 
     def refresh_output_tree(self) -> None:
@@ -244,6 +258,21 @@ class InputPanel(QWidget):
         layout.addWidget(subfolder_hint)
         layout.addWidget(self._subfolder_input)
         layout.addWidget(_divider())
+
+        mode_label = QLabel("Output Mode")
+        mode_label.setStyleSheet("font-weight: bold;")
+        self._output_mode_combo = QComboBox()
+        self._output_mode_combo.addItem("Raw only (Stage 1)", RAW_ONLY)
+        self._output_mode_combo.addItem("Formatted only (Stage 2)", FORMATTED_ONLY)
+        self._output_mode_combo.addItem("Both (Stage 1 + Stage 2)", BOTH)
+        self._output_mode_combo.setToolTip(
+            "Raw only  — save to output/.../raw/\n"
+            "Formatted — run doc-formatter, save to output/.../formatted/\n"
+            "Both      — save raw, then also save a formatted copy"
+        )
+
+        layout.addWidget(mode_label)
+        layout.addWidget(self._output_mode_combo)
 
         self.convert_btn = QPushButton("Convert")
         self.convert_btn.setEnabled(False)

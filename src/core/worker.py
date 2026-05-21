@@ -1,9 +1,15 @@
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from core.ai_formatter import reformat_with_doc_formatter
 from core.formatter import format_youtube, format_web, safe_filename
 from core.paths import OUTPUT_DIR
 from core.web import extract_web
 from core.youtube import extract_youtube
+
+# output_mode values
+RAW_ONLY = "raw_only"
+FORMATTED_ONLY = "formatted_only"
+BOTH = "both"
 
 
 def _is_youtube_url(url: str) -> bool:
@@ -15,14 +21,26 @@ class ConversionWorker(QThread):
     finished = pyqtSignal(str, str)  # (markdown_content, saved_path)
     error = pyqtSignal(str)
 
-    def __init__(self, sources: list[str], subfolder: str) -> None:
+    def __init__(
+        self,
+        sources: list[str],
+        subfolder: str,
+        output_mode: str = RAW_ONLY,
+    ) -> None:
         super().__init__()
         self.sources = sources
         self.subfolder = subfolder
+        self.output_mode = output_mode
 
     def run(self) -> None:
-        out_dir = OUTPUT_DIR / self.subfolder if self.subfolder else OUTPUT_DIR
-        out_dir.mkdir(parents=True, exist_ok=True)
+        base_dir = OUTPUT_DIR / self.subfolder if self.subfolder else OUTPUT_DIR
+        raw_dir = base_dir / "raw"
+        formatted_dir = base_dir / "formatted"
+
+        if self.output_mode in (RAW_ONLY, BOTH):
+            raw_dir.mkdir(parents=True, exist_ok=True)
+        if self.output_mode in (FORMATTED_ONLY, BOTH):
+            formatted_dir.mkdir(parents=True, exist_ok=True)
 
         last_markdown = ""
         last_saved = ""
@@ -45,10 +63,41 @@ class ConversionWorker(QThread):
                 return
 
             filename = safe_filename(title)
-            save_path = out_dir / filename
-            save_path.write_text(markdown, encoding="utf-8")
-            last_markdown = markdown
-            last_saved = str(save_path)
-            self.progress.emit(f"[{i}/{len(self.sources)}] Saved: {filename}")
+
+            if self.output_mode in (RAW_ONLY, BOTH):
+                raw_path = raw_dir / filename
+                raw_path.write_text(markdown, encoding="utf-8")
+                last_markdown = markdown
+                last_saved = str(raw_path)
+                self.progress.emit(f"[{i}/{len(self.sources)}] Saved raw: {filename}")
+
+            if self.output_mode in (FORMATTED_ONLY, BOTH):
+                self.progress.emit(
+                    f"[{i}/{len(self.sources)}] Reformatting with doc-formatter…"
+                )
+                try:
+                    reformatted = reformat_with_doc_formatter(markdown)
+                    fmt_path = formatted_dir / filename
+                    fmt_path.write_text(reformatted, encoding="utf-8")
+                    last_markdown = reformatted
+                    last_saved = str(fmt_path)
+                    self.progress.emit(
+                        f"[{i}/{len(self.sources)}] Stage 2 complete: {filename}"
+                    )
+                except Exception as exc:
+                    if self.output_mode == FORMATTED_ONLY:
+                        # Fall back: save raw so the file isn't lost
+                        raw_dir.mkdir(parents=True, exist_ok=True)
+                        raw_path = raw_dir / filename
+                        raw_path.write_text(markdown, encoding="utf-8")
+                        last_markdown = markdown
+                        last_saved = str(raw_path)
+                        self.progress.emit(
+                            f"[{i}/{len(self.sources)}] doc-formatter failed ({exc}); saved raw instead"
+                        )
+                    else:
+                        self.progress.emit(
+                            f"[{i}/{len(self.sources)}] doc-formatter failed ({exc}); keeping raw output"
+                        )
 
         self.finished.emit(last_markdown, last_saved)

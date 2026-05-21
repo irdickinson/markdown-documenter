@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 from .panels.chat_panel import ChatPanel
 from .panels.input_panel import InputPanel
 from .panels.output_panel import OutputPanel
+from core.format_worker import FormatWorker
 from core.worker import ConversionWorker
 
 _OLLAMA_CHECK_INTERVAL_MS = 10_000
@@ -27,6 +28,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(900, 600)
         self.resize(1200, 720)
         self._worker: ConversionWorker | None = None
+        self._format_worker: FormatWorker | None = None
         self._build_ui()
         self._connect_signals()
         self._start_ollama_polling()
@@ -84,6 +86,7 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         self.input_panel.convert_btn.clicked.connect(self._on_convert)
         self.input_panel.open_file_requested.connect(self.output_panel.open_file)
+        self.input_panel.format_file_requested.connect(self._on_format_file)
 
     def _start_ollama_polling(self) -> None:
         self._check_ollama_status()
@@ -111,18 +114,41 @@ class MainWindow(QMainWindow):
         self._throbber.show()
         self.status_bar.showMessage("Starting…")
 
-        self._worker = ConversionWorker(sources, self.input_panel.subfolder)
+        self._worker = ConversionWorker(
+            sources,
+            self.input_panel.subfolder,
+            output_mode=self.input_panel.output_mode,
+        )
         self._worker.progress.connect(self.status_bar.showMessage)
-        self._worker.finished.connect(self._on_finished)
+        self._worker.finished.connect(self._on_conversion_finished)
         self._worker.error.connect(self._on_error)
         self._worker.start()
 
-    def _on_finished(self, markdown: str, saved_path: str) -> None:
+    def _on_format_file(self, path: str) -> None:
+        self.input_panel.set_processing(True)
+        self._throbber.show()
+        self.status_bar.showMessage("Formatting…")
+
+        self._format_worker = FormatWorker([path])
+        self._format_worker.progress.connect(self.status_bar.showMessage)
+        self._format_worker.finished.connect(self._on_format_finished)
+        self._format_worker.error.connect(self._on_error)
+        self._format_worker.start()
+
+    def _on_conversion_finished(self, markdown: str, saved_path: str) -> None:
         self._throbber.hide()
         if saved_path:
             self.output_panel.open_file(saved_path)
         else:
             self.output_panel.set_content(markdown)
+        self.input_panel.set_processing(False)
+        self.input_panel.refresh_output_tree()
+        self.status_bar.showMessage("Done")
+
+    def _on_format_finished(self, _content: str, saved_path: str) -> None:
+        self._throbber.hide()
+        if saved_path:
+            self.output_panel.open_file(saved_path)
         self.input_panel.set_processing(False)
         self.input_panel.refresh_output_tree()
         self.status_bar.showMessage("Done")
