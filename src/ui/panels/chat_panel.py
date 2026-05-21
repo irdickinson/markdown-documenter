@@ -4,6 +4,7 @@ from PyQt6.QtGui import QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -64,6 +65,7 @@ class ChatPanel(QWidget):
         self._refresh_btn.setText("↻")
         self._refresh_btn.setToolTip("Refresh model list from Ollama")
         self._clear_btn = QPushButton("Clear Chat")
+        self._clear_btn.setObjectName("secondaryBtn")
         model_row.addWidget(self._model_combo)
         model_row.addWidget(self._refresh_btn)
         model_row.addStretch()
@@ -79,13 +81,20 @@ class ChatPanel(QWidget):
         )
         layout.addWidget(self._browser, stretch=1)
 
+        # Separator above input area
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(separator)
+
         # Input row
         input_row = QHBoxLayout()
+        input_row.setSpacing(8)
         self._input = QLineEdit()
-        self._input.setPlaceholderText("Type a message…")
+        self._input.setPlaceholderText("Type a message… (Enter to send)")
         self._send_btn = QPushButton("Send")
-        self._send_btn.setDefault(True)
         self._stop_btn = QPushButton("Stop")
+        self._stop_btn.setObjectName("stopBtn")
         self._stop_btn.setEnabled(False)
         input_row.addWidget(self._input, stretch=1)
         input_row.addWidget(self._send_btn)
@@ -198,6 +207,8 @@ class ChatPanel(QWidget):
         self._send_btn.setEnabled(not busy)
         self._input.setEnabled(not busy)
         self._stop_btn.setEnabled(busy)
+        if not busy:
+            self._input.setFocus()
 
 
 def _build_css() -> str:
@@ -236,7 +247,7 @@ body {{
 }}
 .user-msg {{ background: {user_bg}; }}
 .ai-msg   {{ background: {ai_bg}; }}
-.label    {{ font-size: 10px; color: {label_color}; text-transform: uppercase; letter-spacing: 0.05em; }}
+.label    {{ font-size: 11px; color: {label_color}; font-weight: 600; }}
 p {{ margin: 4px 0; }}
 code {{ background: {code_bg}; padding: 1px 4px; border-radius: 3px; font-family: Consolas, monospace; }}
 pre  {{ background: {code_bg}; padding: 10px; border-radius: 4px; white-space: pre-wrap; word-break: break-word; }}
