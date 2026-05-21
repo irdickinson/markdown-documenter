@@ -4,6 +4,7 @@ from PyQt6.QtGui import QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -64,6 +65,7 @@ class ChatPanel(QWidget):
         self._refresh_btn.setText("↻")
         self._refresh_btn.setToolTip("Refresh model list from Ollama")
         self._clear_btn = QPushButton("Clear Chat")
+        self._clear_btn.setObjectName("secondaryBtn")
         model_row.addWidget(self._model_combo)
         model_row.addWidget(self._refresh_btn)
         model_row.addStretch()
@@ -79,12 +81,20 @@ class ChatPanel(QWidget):
         )
         layout.addWidget(self._browser, stretch=1)
 
+        # Separator above input area
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(separator)
+
         # Input row
         input_row = QHBoxLayout()
+        input_row.setSpacing(8)
         self._input = QLineEdit()
-        self._input.setPlaceholderText("Type a message…")
+        self._input.setPlaceholderText("Type a message… (Enter to send)")
         self._send_btn = QPushButton("Send")
         self._stop_btn = QPushButton("Stop")
+        self._stop_btn.setObjectName("stopBtn")
         self._stop_btn.setEnabled(False)
         input_row.addWidget(self._input, stretch=1)
         input_row.addWidget(self._send_btn)

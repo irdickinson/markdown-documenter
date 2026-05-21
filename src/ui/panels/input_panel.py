@@ -235,6 +235,7 @@ class InputPanel(QWidget):
         self._queue_count_label = QLabel("No sources queued")
         self._queue_count_label.setStyleSheet("color: grey; font-size: 11px;")
         self._clear_btn = QPushButton("Clear")
+        self._clear_btn.setObjectName("secondaryBtn")
         self._clear_btn.setEnabled(False)
         self._clear_btn.setMaximumWidth(60)
         clear_row.addWidget(self._queue_count_label)
@@ -288,6 +289,7 @@ class InputPanel(QWidget):
 
         btn_row = QHBoxLayout()
         self._new_folder_btn = QPushButton("New Folder")
+        self._new_folder_btn.setObjectName("secondaryBtn")
         btn_row.addWidget(self._new_folder_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
